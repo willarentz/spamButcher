@@ -9,6 +9,7 @@ import sqlite3
 import sys,os
 import re
 import openai
+import time
 
 database_path = 'emails.db'
 
@@ -48,7 +49,7 @@ def chatOpenAI(query):
     msg = f"You are an AI trained to detect spam emails. Analyze the email content provided and determine if it is spam or not.\
 You work for {full_name} ({email_address}).\
 Respond with a JSON object indicating the spam status." + \
-"For example, respond with '{\"is_spam\": true}' for spam emails and '{\"is_spam\": false}' for non-spam emails.\n\nMAIL:\n" + str(query)
+"Output '{\"is_spam\": true}' for spam emails and '{\"is_spam\": false}' for non-spam emails.\n\nMAIL:\n" + str(query)
     response = openai.chat.completions.create(
         model=model_engine,  # or any other available model
         messages=[
@@ -57,8 +58,6 @@ Respond with a JSON object indicating the spam status." + \
         ]
     )
     return response.choices[0].message.content
-
-
 
 def chat(messages):
     r = requests.post(
@@ -213,4 +212,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    while True:
+        main()
+
+        print("Sleeping for 10 minutes")
+        time.sleep(600)
