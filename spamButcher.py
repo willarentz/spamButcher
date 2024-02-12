@@ -186,11 +186,11 @@ def main():
                         print("Mail is spam")
                     else:
                         print("Mail is not spam")
-
-                    email_details['is_spam'] = spam_status['is_spam']
-
+                     
                     with open(f'mails/email_{e_id.decode()}.json', 'w') as json_file:
                         json.dump(email_details, json_file, indent=4)
+
+                    email_details['is_spam'] = spam_status['is_spam']
 
                     c.execute("INSERT INTO emails VALUES (?, ?, ?, ?, ?, ?, ?)", 
                     (email_details['id'], email_details['subject'], email_details['date'], email_details['from'], 
@@ -198,12 +198,13 @@ def main():
                     conn.commit()
                     all_mails.append(email_details)
 
-                    #moving mails to 'SpamAI' folder
-                    mail.copy(e_id, 'SpamAI')
-                    print(f"Email {email_details['id']} moved to 'SpamAI' folder")
-                    #deleting old mail
-                    mail.store(e_id, '+FLAGS', '\\Deleted')
-                    #print(f"Email {email_details['id']} deleted")
+                    if (spam_status['is_spam']==True):
+                        #moving mails to 'SpamAI' folder
+                        mail.copy(e_id, 'SpamAI')
+                        print(f"Email {email_details['id']} moved to 'SpamAI' folder")
+                        #deleting old mail
+                        mail.store(e_id, '+FLAGS', '\\Deleted')
+                        #print(f"Email {email_details['id']} deleted")
 
         mail.expunge()  # Clean up deleted emails
     # Logout
