@@ -1,0 +1,60 @@
+/* style.css */
+body {
+    font-family: Arial, sans-serif;
+    margin: 0;
+    padding: 0;
+    /* display: flex; */
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background-color: #f0f0f0;
+}
+table {
+    border-collapse: collapse;
+    /* width: 98%; */
+    max-width: 98%;
+    margin: 20px auto;
+    table-layout: fixed;
+}
+th, td {
+    text-align: left;
+    padding: 8px;
+    border: 1px solid #ddd;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    max-width: 200px; /* Adjust as necessary */
+}
+th {
+    background-color: #4CAF50;
+    color: white;
+}
+tr:nth-child(even) {
+    background-color: #f2f2f2;
+}
+button {
+    cursor: pointer;
+    padding: 5px 10px;
+    margin: 0 5px;
+    border: none;
+    color: white;
+}
+.ham {
+    background-color: #4CAF50;
+}
+.spam {
+    background-color: #f44336;
+}
+
+small-column {
+    width: 200px; 
+    max-width: 200px;
+    white-space: nowrap; 
+    overflow: hidden;
+    text-overflow: ellipsis; 
+}
+
+/* Optional: Specific styling for the body column to allow it more space */
+th.body-column, td.body-column {
+    width: auto; /* Allows the body column to take up remaining space */
+    max-width: none;
+}

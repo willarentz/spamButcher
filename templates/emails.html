@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emails</title>
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <table class="table table-hover table-responsive-md">
+        <tr>
+            <!-- <th>ID</th> -->
+            <th class="small-column" style="width: 200px;">Actions</th>
+            <th class="small-column">Header</th>
+            <!-- <th class="small-column">Date</th> -->
+            <!-- <th class="small-column">From</th> -->
+            <!-- <th class="small-column">To</th> -->
+            <th>Body</th>
+        </tr>
+        {% for email in emails %}
+            <tr>
+                <td>
+                    <form action="/classify" method="post">
+                        <input type="hidden" name="email_file" value="{{ email.filename }}">
+                        <button type="submit" name="classification" value="ham" class="btn btn-success">Ham</button>
+                        <button type="submit" name="classification" value="spam" class="btn btn-danger">Spam</button>
+                    </form>
+                </td>
+                <!-- <td>{{ email.id }}</td> -->
+                <td>Subject: {{ email.subject }} <br/>
+                Date: {{ email.date }} <br>
+                From: {{ email.from }} <br>
+                To :{{ email.to }}</td>
+                <td>{{ email.body|safe }}</td>
+            </tr>
+        {% endfor %}
+    </table>
+</body>
+</html>
