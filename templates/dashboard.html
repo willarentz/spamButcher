@@ -206,6 +206,8 @@
                     </div>
                 </div>
                 <div class="modal-footer">
+                    <div class="mr-auto text-muted small" id="reclassify-feedback"></div>
+                    <button type="button" class="btn btn-outline-primary" id="reclassify-btn">Re-evaluate</button>
                     <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Close</button>
                 </div>
             </div>
@@ -224,7 +226,7 @@
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
-                <form class="config-form" id="config-form" method="post" action="{{ url_for('update_config') }}">
+                <form class="config-form" id="config-form" method="post" action="{{ url_for('update_config') }}" enctype="multipart/form-data">
                     <div class="modal-body">
                         <ul class="nav nav-tabs" id="configTabs" role="tablist">
                             <li class="nav-item">
@@ -236,7 +238,7 @@
                         </ul>
                         <div class="tab-content p-3" id="configTabsContent">
                             <div class="tab-pane fade show active" id="accounts-tab" role="tabpanel" aria-labelledby="accounts-tab-link">
-                                <p class="text-muted">Add as many IMAP inboxes as you need. Each account runs through the same LLM policy.</p>
+                                <p class="text-muted">Add any mix of traditional IMAP inboxes and Google Workspace / Gmail accounts. Each mailbox shares the same LLM policy.</p>
                                 <input type="hidden" name="accounts-count" id="accounts-count" value="{{ config.accounts|length }}">
                                 <div id="accounts-container">
                                     {% for account in config.accounts %}
@@ -250,36 +252,103 @@
                                                     <button type="button" class="btn btn-sm btn-outline-danger remove-account">Remove</button>
                                                 {% endif %}
                                             </div>
+                                            {% set acct_type = (account.type or 'imap') %}
                                             <div class="form-row">
                                                 <div class="form-group col-md-4">
                                                     <label>Label</label>
                                                     <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-name" data-field="name" value="{{ account.name }}" placeholder="Marketing Inbox">
                                                 </div>
-                                                <div class="form-group col-md-4">
-                                                    <label>IMAP Host</label>
-                                                    <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-imap_host" data-field="imap_host" value="{{ account.imap_host }}" required autocapitalize="none" spellcheck="false">
-                                                </div>
-                                                <div class="form-group col-md-4">
-                                                    <label>Username</label>
-                                                    <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-imap_username" data-field="imap_username" value="{{ account.imap_username }}" required autocapitalize="none" spellcheck="false">
-                                                </div>
-                                            </div>
-                                            <div class="form-row">
-                                                <div class="form-group col-md-4">
-                                                    <label>Password</label>
-                                                    <input type="password" class="form-control" name="accounts-{{ loop.index0 }}-imap_password" data-field="imap_password" value="{{ account.imap_password }}" required autocapitalize="none">
+                                                <div class="form-group col-md-3">
+                                                    <label>Account Type</label>
+                                                    <select class="form-control account-type-select" name="accounts-{{ loop.index0 }}-type" data-field="type">
+                                                        <option value="imap" {% if acct_type != 'google' %}selected{% endif %}>IMAP</option>
+                                                        <option value="google" {% if acct_type == 'google' %}selected{% endif %}>Google</option>
+                                                    </select>
                                                 </div>
                                                 <div class="form-group col-md-3">
-                                                    <label>Inbox Folder</label>
-                                                    <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-imap_folder" data-field="imap_folder" value="{{ account.imap_folder }}">
-                                                </div>
-                                                <div class="form-group col-md-3">
-                                                    <label>Spam Folder</label>
-                                                    <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-spam_folder" data-field="spam_folder" value="{{ account.spam_folder }}">
+                                                    <label>Spam Folder / Label</label>
+                                                    <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-spam_folder" data-field="spam_folder" value="{{ account.spam_folder }}" placeholder="SpamAI">
                                                 </div>
                                                 <div class="form-group col-md-2">
                                                     <label>Max/Cycle</label>
                                                     <input type="number" min="1" class="form-control" name="accounts-{{ loop.index0 }}-download_max" data-field="download_max" value="{{ account.download_max }}">
+                                                </div>
+                                            </div>
+                                            <div class="account-type-section {% if acct_type == 'google' %}d-none{% endif %}" data-type-section="imap">
+                                                <div class="form-row">
+                                                    <div class="form-group col-md-4">
+                                                        <label>IMAP Host</label>
+                                                        <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-imap_host" data-field="imap_host" value="{{ account.imap_host }}" autocapitalize="none" spellcheck="false">
+                                                    </div>
+                                                    <div class="form-group col-md-4">
+                                                        <label>Username</label>
+                                                        <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-imap_username" data-field="imap_username" value="{{ account.imap_username }}" autocapitalize="none" spellcheck="false">
+                                                    </div>
+                                                    <div class="form-group col-md-4">
+                                                        <label>Password / App Password</label>
+                                                        <input type="password" class="form-control" name="accounts-{{ loop.index0 }}-imap_password" data-field="imap_password" value="{{ account.imap_password }}" autocapitalize="none">
+                                                    </div>
+                                                </div>
+                                                <div class="form-group">
+                                                    <label>Inbox Folder</label>
+                                                    <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-imap_folder" data-field="imap_folder" value="{{ account.imap_folder or 'INBOX' }}">
+                                                </div>
+                                            </div>
+                                            <div class="account-type-section {% if acct_type != 'google' %}d-none{% endif %}" data-type-section="google">
+                                                <input type="hidden" name="accounts-{{ loop.index0 }}-google_credentials_file" data-field="google_credentials_file" value="{{ account.google_credentials_file }}">
+                                                <input type="hidden" name="accounts-{{ loop.index0 }}-google_token_file" data-field="google_token_file" value="{{ account.google_token_file }}">
+                                                <div class="form-group">
+                                                    <label>OAuth Client JSON</label>
+                                                    <div class="credential-status text-muted mb-2">
+                                                        {% if account.google_credentials_file %}
+                                                            Credential stored in app sandbox.
+                                                        {% else %}
+                                                            No credential uploaded yet.
+                                                        {% endif %}
+                                                    </div>
+                                                    <textarea class="form-control" rows="4" name="accounts-{{ loop.index0 }}-google_credentials_data" data-field="google_credentials_data" placeholder="Paste the full OAuth client JSON blob here"></textarea>
+                                                    <small class="form-text text-muted">Prefer not to paste? Upload the JSON file below.</small>
+                                                </div>
+                                                <div class="form-group">
+                                                    <label>Google Redirect URL</label>
+                                                    <div class="auto-token-hint">
+                                                        <p class="mb-1"><code>{{ google_callback_url }}</code></p>
+                                                        <small class="text-muted">Add this exact URL to the OAuth client's Authorized redirect URIs in Google Cloud.</small>
+                                                    </div>
+                                                </div>
+                                                <div class="form-group">
+                                                    <label>Upload OAuth JSON</label>
+                                                    <input type="file" class="form-control-file" name="accounts-{{ loop.index0 }}-google_credentials_upload" data-field="google_credentials_upload" accept=".json,.JSON,application/json,text/json,application/x-json,application/octet-stream">
+                                                    <small class="form-text text-muted">SpamButcher will copy the file into its secure storage.</small>
+                                                </div>
+                                                <div class="form-group">
+                                                    <label>Authorize SpamButcher</label>
+                                                    {% if account.google_credentials_file %}
+                                                        <div class="oauth-action-row">
+                                                            <a class="btn btn-outline-primary btn-sm" target="_blank" href="{{ url_for('google_oauth_start', account_index=loop.index0) }}">Open Google Consent</a>
+                                                            {% if account.google_token_file %}
+                                                                <span class="credential-status text-success">Token stored.</span>
+                                                            {% endif %}
+                                                        </div>
+                                                        <small class="form-text text-muted">Opens a Google consent window. Approve access, then return here.</small>
+                                                    {% else %}
+                                                        <div>
+                                                            <button type="button" class="btn btn-outline-secondary btn-sm" disabled>Open Google Consent</button>
+                                                            <small class="form-text text-muted">Paste or upload credentials, save, then authorize.</small>
+                                                        </div>
+                                                    {% endif %}
+                                                </div>
+                                                <div class="form-group">
+                                                    <label>Token Handling</label>
+                                                    <div class="auto-token-hint">
+                                                        <p class="mb-1">Tokens are stored automatically — no manual file paths required.</p>
+                                                        <small class="text-muted">Saving with new credentials resets the token so Gmail OAuth can run again.</small>
+                                                    </div>
+                                                </div>
+                                                <div class="form-group">
+                                                    <label>Unread Query</label>
+                                                    <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-google_query" data-field="google_query" value="{{ account.google_query }}" placeholder="label:INBOX is:unread">
+                                                    <small class="form-text text-muted">Uses Gmail search syntax; defaults to all unread inbox messages.</small>
                                                 </div>
                                             </div>
                                         </div>
@@ -392,31 +461,78 @@
                     <label>Label</label>
                     <input type="text" class="form-control" data-field="name" placeholder="Support">
                 </div>
-                <div class="form-group col-md-4">
-                    <label>IMAP Host</label>
-                    <input type="text" class="form-control" data-field="imap_host" autocapitalize="none" spellcheck="false">
-                </div>
-                <div class="form-group col-md-4">
-                    <label>Username</label>
-                    <input type="text" class="form-control" data-field="imap_username" autocapitalize="none" spellcheck="false">
-                </div>
-            </div>
-            <div class="form-row">
-                <div class="form-group col-md-4">
-                    <label>Password</label>
-                    <input type="password" class="form-control" data-field="imap_password" autocapitalize="none">
+                <div class="form-group col-md-3">
+                    <label>Account Type</label>
+                    <select class="form-control account-type-select" data-field="type">
+                        <option value="imap" selected>IMAP</option>
+                        <option value="google">Google</option>
+                    </select>
                 </div>
                 <div class="form-group col-md-3">
-                    <label>Inbox Folder</label>
-                    <input type="text" class="form-control" data-field="imap_folder" value="INBOX">
-                </div>
-                <div class="form-group col-md-3">
-                    <label>Spam Folder</label>
+                    <label>Spam Folder / Label</label>
                     <input type="text" class="form-control" data-field="spam_folder" value="SpamAI">
                 </div>
                 <div class="form-group col-md-2">
                     <label>Max/Cycle</label>
                     <input type="number" min="1" class="form-control" data-field="download_max" value="50">
+                </div>
+            </div>
+            <div class="account-type-section" data-type-section="imap">
+                <div class="form-row">
+                    <div class="form-group col-md-4">
+                        <label>IMAP Host</label>
+                        <input type="text" class="form-control" data-field="imap_host" autocapitalize="none" spellcheck="false">
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>Username</label>
+                        <input type="text" class="form-control" data-field="imap_username" autocapitalize="none" spellcheck="false">
+                    </div>
+                    <div class="form-group col-md-4">
+                        <label>Password / App Password</label>
+                        <input type="password" class="form-control" data-field="imap_password" autocapitalize="none">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Inbox Folder</label>
+                    <input type="text" class="form-control" data-field="imap_folder" value="INBOX">
+                </div>
+            </div>
+            <div class="account-type-section d-none" data-type-section="google">
+                <input type="hidden" data-field="google_credentials_file">
+                <input type="hidden" data-field="google_token_file">
+                <div class="form-group">
+                    <label>OAuth Client JSON</label>
+                    <textarea class="form-control" rows="4" data-field="google_credentials_data" placeholder="Paste the OAuth client JSON here"></textarea>
+                    <small class="form-text text-muted">Prefer to upload? Use the file picker below.</small>
+                </div>
+                <div class="form-group">
+                    <label>Google Redirect URL</label>
+                    <div class="auto-token-hint">
+                        <p class="mb-1"><code>{{ google_callback_url }}</code></p>
+                        <small class="text-muted">Add this URL to the OAuth client's Authorized redirect URIs before saving.</small>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Upload OAuth JSON</label>
+                    <input type="file" class="form-control-file" data-field="google_credentials_upload" accept=".json,.JSON,application/json,text/json,application/x-json,application/octet-stream">
+                    <small class="form-text text-muted">SpamButcher will copy the file into secure storage.</small>
+                </div>
+                <div class="form-group">
+                    <label>Authorize SpamButcher</label>
+                    <button type="button" class="btn btn-outline-secondary btn-sm" disabled>Open Google Consent</button>
+                    <small class="form-text text-muted">Save this account first, then use the button in the dashboard to authorize.</small>
+                </div>
+                <div class="form-group">
+                    <label>Token Handling</label>
+                    <div class="auto-token-hint">
+                        <p class="mb-1">Tokens are stored automatically once the OAuth flow completes.</p>
+                        <small class="text-muted">No manual file paths are needed.</small>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Unread Query</label>
+                    <input type="text" class="form-control" data-field="google_query" value="label:INBOX is:unread">
+                    <small class="form-text text-muted">Uses Gmail search syntax; defaults to all unread inbox messages.</small>
                 </div>
             </div>
         </div>
@@ -431,6 +547,9 @@
         const ollamaModelsEndpoint = "{{ url_for('api_ollama_models') }}";
         const statusState = {{ status|tojson }};
         const emailsState = {{ emails|tojson }};
+        const reclassifyBtn = document.getElementById('reclassify-btn');
+        const reclassifyFeedback = document.getElementById('reclassify-feedback');
+        const activeEmail = { id: null, account: null };
 
         function escapeHtml(unsafe) {
             if (!unsafe && unsafe !== 0) {
@@ -642,6 +761,27 @@
         const addAccountBtn = document.getElementById('add-account-btn');
         const accountsCountInput = document.getElementById('accounts-count');
 
+        function toggleAccountSectionsForCard(card, typeValue) {
+            if (!card) {
+                return;
+            }
+            const normalized = (typeValue || 'imap').toLowerCase();
+            card.querySelectorAll('[data-type-section]').forEach((section) => {
+                const sectionType = section.dataset.typeSection || 'imap';
+                section.classList.toggle('d-none', sectionType !== normalized);
+            });
+        }
+
+        function refreshAccountTypeSections() {
+            if (!accountsContainer) {
+                return;
+            }
+            accountsContainer.querySelectorAll('.account-card').forEach((card) => {
+                const select = card.querySelector('[data-field="type"]');
+                toggleAccountSectionsForCard(card, select ? select.value : 'imap');
+            });
+        }
+
         function refreshAccountIndices() {
             const cards = accountsContainer ? accountsContainer.querySelectorAll('.account-card') : [];
             cards.forEach((card, idx) => {
@@ -658,6 +798,7 @@
             if (accountsCountInput) {
                 accountsCountInput.value = cards.length;
             }
+            refreshAccountTypeSections();
         }
 
         function addAccountCard() {
@@ -686,6 +827,14 @@
                         refreshAccountIndices();
                     }
                 }
+            });
+            accountsContainer.addEventListener('change', (event) => {
+                const select = event.target.closest('[data-field="type"]');
+                if (!select) {
+                    return;
+                }
+                const card = event.target.closest('.account-card');
+                toggleAccountSectionsForCard(card, select.value);
             });
         }
 
@@ -716,6 +865,23 @@
         refreshAccountIndices();
         setInterval(refreshData, 5000);
 
+        function setReclassifyFeedback(message, isError = false) {
+            if (!reclassifyFeedback) {
+                return;
+            }
+            reclassifyFeedback.textContent = message || '';
+            reclassifyFeedback.classList.toggle('text-danger', isError);
+            reclassifyFeedback.classList.toggle('text-muted', !isError);
+        }
+
+        function setReclassifyState(isLoading) {
+            if (!reclassifyBtn) {
+                return;
+            }
+            reclassifyBtn.disabled = isLoading || !activeEmail.id;
+            reclassifyBtn.textContent = isLoading ? 'Re-evaluating...' : 'Re-evaluate';
+        }
+
         function setDetailField(id, value, allowHtml = false) {
             const el = document.getElementById(id);
             if (!el) {
@@ -735,6 +901,10 @@
         }
 
         function openEmailModal(emailId, accountName) {
+            activeEmail.id = emailId;
+            activeEmail.account = accountName || null;
+            setReclassifyFeedback('');
+            setReclassifyState(false);
             setDetailField('detailSubject', 'Loading...');
             setDetailField('detailFrom', 'Loading...');
             setDetailField('detailTo', 'Loading...');
@@ -768,6 +938,43 @@
                     setDetailField('detailClassification', '<span class="text-danger">Error</span>', true);
                     setDetailField('detailAccount', accountName || 'Unknown');
                 });
+        }
+
+        if (reclassifyBtn) {
+            reclassifyBtn.addEventListener('click', () => {
+                if (!activeEmail.id) {
+                    return;
+                }
+                setReclassifyState(true);
+                setReclassifyFeedback('Re-evaluating with current LLM...');
+                fetch(`${emailsEndpoint}/${encodeURIComponent(activeEmail.id)}/reclassify`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ account: activeEmail.account }),
+                })
+                    .then((response) => {
+                        if (!response.ok) {
+                            throw new Error('Unable to re-evaluate');
+                        }
+                        return response.json();
+                    })
+                    .then((data) => {
+                        const isSpam = Boolean(data.is_spam);
+                        setDetailField('detailClassification', classifyBadge(isSpam), true);
+                        const same = data.previous_is_spam === isSpam;
+                        const message = same ? 'Classification confirmed.' : 'Classification updated.';
+                        setReclassifyFeedback(message);
+                        setDetailField('detailAccount', data.account_name || activeEmail.account || '');
+                        refreshData();
+                    })
+                    .catch(() => {
+                        setReclassifyFeedback('Re-evaluation failed.', true);
+                    })
+                    .finally(() => {
+                        setReclassifyState(false);
+                    });
+            });
+            setReclassifyState(false);
         }
     </script>
 </body>

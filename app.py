@@ -408,6 +408,24 @@ def api_email_detail(message_id):
     return jsonify(email_record)
 
 
+@app.route('/api/emails/<path:message_id>/reclassify', methods=['POST'])
+def api_reclassify_email(message_id):
+    payload = request.get_json(silent=True) or {}
+    account_name = payload.get('account') or request.args.get('account')
+    try:
+        updated = processor.reclassify_email(message_id, account_name)
+    except KeyError:
+        return jsonify({'error': 'Email not found'}), 404
+    except Exception as exc:
+        monitor.add_event(
+            'error',
+            f'Re-evaluation failed for {message_id}: {exc}',
+            {'account': account_name} if account_name else {},
+        )
+        return jsonify({'error': str(exc)}), 500
+    return jsonify(updated)
+
+
 @app.route('/emails/clear', methods=['POST'])
 def clear_email_log():
     database.clear_emails()

@@ -1,3 +1,4 @@
+import base64
 import email
 import imaplib
 import json
@@ -11,6 +12,17 @@ from datetime import datetime
 from email.header import decode_header
 from typing import Any, Dict, List, Optional
 
+try:
+    from google.oauth2.credentials import Credentials
+    from google_auth_oauthlib.flow import InstalledAppFlow
+    from google.auth.transport.requests import Request as GoogleRequest
+    from googleapiclient.discovery import build as google_build
+except ImportError:  # optional dependency, only needed for Google accounts
+    Credentials = None
+    InstalledAppFlow = None
+    GoogleRequest = None
+    google_build = None
+
 import requests
 from bs4 import BeautifulSoup
 
@@ -23,6 +35,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "accounts": [
         {
             "name": "Primary",
+            "type": "imap",
             "imap_host": "",
             "imap_username": "",
             "imap_password": "",
@@ -30,6 +43,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
             "spam_folder": "SpamAI",
             "download_max": 50,
             "enabled": True,
+            "google_credentials_file": "",
+            "google_token_file": "",
+            "google_query": "label:INBOX is:unread",
         }
     ],
     "poll_interval_seconds": 600,
@@ -56,6 +72,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
 }
 
+GOOGLE_SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 
 def deep_merge(base: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in updates.items():
@@ -71,6 +88,20 @@ class ConfigManager:
         self.path = path
         self._lock = threading.Lock()
         self._config = self._load()
+
+    def _normalize_account(self, account: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+        defaults = json.loads(json.dumps(DEFAULT_CONFIG['accounts'][0]))
+        if account:
+            defaults.update(account)
+        defaults['type'] = (defaults.get('type') or 'imap').lower()
+        defaults['imap_folder'] = defaults.get('imap_folder') or 'INBOX'
+        defaults['spam_folder'] = defaults.get('spam_folder') or 'SpamAI'
+        defaults['google_credentials_file'] = defaults.get('google_credentials_file') or ''
+        defaults['google_token_file'] = defaults.get('google_token_file') or ''
+        defaults['google_query'] = defaults.get('google_query') or DEFAULT_CONFIG['accounts'][0]['google_query']
+        defaults['download_max'] = int(defaults.get('download_max', 50) or 50)
+        defaults['enabled'] = bool(defaults.get('enabled', True))
+        return defaults
 
     def _load(self) -> Dict[str, Any]:
         if os.path.exists(self.path):
@@ -94,6 +125,7 @@ class ConfigManager:
             config['accounts'] = [account]
         if not config.get('accounts'):
             config['accounts'] = json.loads(json.dumps(DEFAULT_CONFIG['accounts']))
+        config['accounts'] = [self._normalize_account(account) for account in config['accounts']]
         self._write(config)
         return config
 
@@ -271,6 +303,15 @@ class EmailDatabase:
         if not row:
             return None
         return dict(row)
+
+    def update_classification(self, message_id: str, account_name: str, is_spam: bool) -> None:
+        conn = self._connect()
+        conn.execute(
+            'UPDATE emails SET is_spam=? WHERE id=? AND account_name=?',
+            (int(bool(is_spam)), message_id, account_name),
+        )
+        conn.commit()
+        conn.close()
 
 
 def find_body_in_email(email_message: email.message.Message) -> Dict[str, Optional[str]]:
@@ -469,6 +510,7 @@ class EmailProcessor:
         self.config_manager = config_manager
         self.monitor = monitor
         self.database = database
+        self._gmail_label_cache: Dict[str, Dict[str, str]] = {}
 
     def process_new_messages(self) -> int:
         config = self.config_manager.get_config()
@@ -487,6 +529,47 @@ class EmailProcessor:
 
     def _process_account(self, account: Dict[str, Any], global_config: Dict[str, Any]) -> int:
         account_name = account.get('name') or account.get('imap_username') or 'Account'
+        account_type = (account.get('type') or 'imap').lower()
+        if account_type == 'google':
+            return self._process_google_account(account_name, account, global_config)
+        return self._process_imap_account(account_name, account, global_config)
+
+    def reclassify_email(self, message_id: str, account_name: Optional[str] = None) -> Dict[str, Any]:
+        config = self.config_manager.get_config()
+        record = self.database.get_email(message_id, account_name)
+        if not record:
+            raise KeyError('Email not found')
+        prompt_payload = {
+            'to': record.get('to_email'),
+            'from': record.get('from_email'),
+            'subject': record.get('subject'),
+            'body_plain_text': record.get('plain_text_body'),
+            'body_html': record.get('html_body'),
+        }
+        client = build_llm_client(config)
+        raw = client.generate(formatting_function(prompt_payload), config.get('system_prompt', ''))
+        classification = self._interpret_response(raw)
+        previous = bool(record.get('is_spam'))
+        updated_is_spam = bool(classification['is_spam'])
+        account_label = record.get('account_name') or account_name
+        if not account_label:
+            raise RuntimeError('Missing account label for re-evaluation')
+        self.database.update_classification(message_id, account_label, updated_is_spam)
+        level = 'warning' if updated_is_spam else 'info'
+        outcome = 'changed' if previous != updated_is_spam else 'confirmed'
+        subject = record.get('subject') or '(no subject)'
+        self.monitor.add_event(
+            level,
+            f"[{account_label}] Re-evaluated email '{subject}' ({outcome}) as "
+            f"{'spam' if updated_is_spam else 'ham'}",
+            {'reason': classification.get('reason', ''), 'account': account_label},
+        )
+        record['is_spam'] = updated_is_spam
+        record['previous_is_spam'] = previous
+        record['reason'] = classification.get('reason', '')
+        return record
+
+    def _process_imap_account(self, account_name: str, account: Dict[str, Any], global_config: Dict[str, Any]) -> int:
         required = [
             field
             for field in ('imap_host', 'imap_username', 'imap_password')
@@ -581,6 +664,83 @@ class EmailProcessor:
                 except Exception:
                     pass
 
+    def _process_google_account(self, account_name: str, account: Dict[str, Any], global_config: Dict[str, Any]) -> int:
+        required = [
+            field
+            for field in ('google_credentials_file', 'google_token_file')
+            if not account.get(field)
+        ]
+        if required:
+            self.monitor.add_event(
+                'warning',
+                f"[{account_name}] Google settings incomplete: {', '.join(required)}",
+                {'account': account_name},
+            )
+            return 0
+        download_max = int(account.get('download_max', 50) or 50)
+        query = account.get('google_query') or DEFAULT_CONFIG['accounts'][0]['google_query']
+        processed = 0
+        try:
+            service = self._build_gmail_service(
+                account['google_credentials_file'],
+                account['google_token_file'],
+            )
+        except Exception as exc:
+            self.monitor.add_event(
+                'error',
+                f'[{account_name}] Google authentication failed: {exc}',
+                {'account': account_name},
+            )
+            return 0
+        try:
+            unread = self._fetch_google_unread_messages(service, query, download_max)
+        except Exception as exc:
+            self.monitor.add_event(
+                'error',
+                f'[{account_name}] Unable to fetch Google emails: {exc}',
+                {'account': account_name},
+            )
+            return 0
+        if not unread:
+            self.monitor.add_event('info', f'[{account_name}] No unread Google emails found', {'account': account_name})
+            return 0
+        client = build_llm_client(global_config)
+        for message in unread:
+            if self.database.email_exists(message['id'], account_name):
+                continue
+            prompt = formatting_function(message)
+            try:
+                raw = client.generate(prompt, global_config.get('system_prompt', ''))
+                classification = self._interpret_response(raw)
+            except Exception as exc:
+                self.monitor.add_event(
+                    'error',
+                    f"[{account_name}] Failed to classify email {message['subject']}: {exc}",
+                    {'account': account_name},
+                )
+                continue
+            message['isSpam'] = classification['is_spam']
+            self.database.insert_email(message, account_name)
+            processed += 1
+            level = 'warning' if classification['is_spam'] else 'info'
+            self.monitor.add_event(
+                level,
+                f"[{account_name}] Email '{message['subject']}' flagged as "
+                f"{'spam' if classification['is_spam'] else 'ham'}",
+                {'reason': classification.get('reason', ''), 'account': account_name},
+            )
+            if classification['is_spam']:
+                spam_label = account.get('spam_folder', 'SpamAI') or 'SpamAI'
+                try:
+                    self._move_google_message_to_label(service, message['gmail_id'], spam_label, account_name)
+                except Exception as exc:
+                    self.monitor.add_event(
+                        'error',
+                        f'[{account_name}] Unable to move spam email: {exc}',
+                        {'account': account_name},
+                    )
+        return processed
+
     def _fetch_unread_messages(self, mail: imaplib.IMAP4_SSL, download_max: int) -> List[Dict[str, Any]]:
         status, response = mail.search(None, '(UNSEEN)')
         if status != 'OK':
@@ -645,6 +805,126 @@ class EmailProcessor:
             self.monitor.add_event('info', f'[{account_name}] Moved email to spam folder', {'folder': folder, 'account': account_name})
         except Exception as exc:
             self.monitor.add_event('error', f'[{account_name}] Unable to move spam email: {exc}', {'account': account_name})
+
+    def _fetch_google_unread_messages(self, service: Any, query: str, download_max: int) -> List[Dict[str, Any]]:
+        emails: List[Dict[str, Any]] = []
+        page_token: Optional[str] = None
+        remaining = max(1, download_max)
+        while remaining > 0:
+            params = {
+                'userId': 'me',
+                'q': query,
+                'maxResults': min(remaining, 100),
+            }
+            if page_token:
+                params['pageToken'] = page_token
+            response = service.users().messages().list(**params).execute()
+            message_refs = response.get('messages') or []
+            if not message_refs:
+                break
+            for ref in message_refs:
+                msg_id = ref.get('id')
+                if not msg_id:
+                    continue
+                detail = service.users().messages().get(userId='me', id=msg_id, format='raw').execute()
+                raw_payload = detail.get('raw')
+                if not raw_payload:
+                    continue
+                raw_bytes = base64.urlsafe_b64decode(raw_payload.encode('utf-8'))
+                msg = email.message_from_bytes(raw_bytes)
+                body = find_body_in_email(msg)
+                emails.append(
+                    {
+                        'gmail_id': msg_id,
+                        'id': msg.get('Message-ID') or msg.get('message-id') or msg_id,
+                        'from': msg.get('from'),
+                        'to': msg.get('to'),
+                        'date': msg.get('date'),
+                        'subject': self._decode_subject(msg.get('subject')),
+                        'body_plain_text': body['plain_text_body'],
+                        'body_html': body['html_body'],
+                    }
+                )
+                if len(emails) >= download_max:
+                    return emails
+            page_token = response.get('nextPageToken')
+            if not page_token:
+                break
+            remaining = download_max - len(emails)
+        return emails
+
+    def _build_gmail_service(self, credentials_path: str, token_path: str):
+        if not all((Credentials, InstalledAppFlow, GoogleRequest, google_build)):
+            raise RuntimeError('Google client libraries are missing. Install google-api-python-client and google-auth-oauthlib.')
+        credentials_path = os.path.expanduser(credentials_path) if credentials_path else credentials_path
+        token_path = os.path.expanduser(token_path) if token_path else token_path
+        creds = None
+        if token_path and os.path.exists(token_path):
+            creds = Credentials.from_authorized_user_file(token_path, GOOGLE_SCOPES)
+        if not creds or not creds.valid:
+            if creds and creds.expired and creds.refresh_token:
+                creds.refresh(GoogleRequest())
+            else:
+                if not credentials_path or not os.path.exists(credentials_path):
+                    raise RuntimeError('Google OAuth credentials file not found')
+                flow = InstalledAppFlow.from_client_secrets_file(credentials_path, GOOGLE_SCOPES)
+                auth_mode = os.environ.get('SPAMBUTCHER_GOOGLE_AUTH_MODE', '').lower()
+                if auth_mode == 'console':
+                    creds = flow.run_console()
+                else:
+                    creds = flow.run_local_server(port=0)
+            if token_path:
+                token_dir = os.path.dirname(token_path)
+                if token_dir:
+                    os.makedirs(token_dir, exist_ok=True)
+                with open(token_path, 'w', encoding='utf-8') as token_file:
+                    token_file.write(creds.to_json())
+        return google_build('gmail', 'v1', credentials=creds, cache_discovery=False)
+
+    def _normalize_gmail_label_name(self, label_name: str) -> str:
+        if not label_name:
+            return ''
+        normalized = label_name.strip()
+        mapping = {
+            '[gmail]/spam': 'SPAM',
+            '[gmail]/trash': 'TRASH',
+            '[gmail]/inbox': 'INBOX',
+            'spam': 'SPAM',
+            'trash': 'TRASH',
+            'inbox': 'INBOX',
+        }
+        return mapping.get(normalized.lower(), normalized)
+
+    def _ensure_gmail_label_id(self, service: Any, label_name: str, account_name: str) -> Optional[str]:
+        normalized = self._normalize_gmail_label_name(label_name)
+        if not normalized:
+            return None
+        cache = self._gmail_label_cache.setdefault(account_name, {})
+        cache_key = normalized.lower()
+        if cache_key in cache:
+            return cache[cache_key]
+        labels = service.users().labels().list(userId='me').execute().get('labels', [])
+        for label in labels:
+            name = (label.get('name') or '').lower()
+            if name == cache_key:
+                cache[cache_key] = label.get('id')
+                return cache[cache_key]
+        body = {'name': normalized}
+        created = service.users().labels().create(userId='me', body=body).execute()
+        label_id = created.get('id')
+        cache[cache_key] = label_id
+        return label_id
+
+    def _move_google_message_to_label(self, service: Any, message_id: str, label_name: str, account_name: str) -> None:
+        label_id = self._ensure_gmail_label_id(service, label_name, account_name)
+        if not label_id:
+            raise RuntimeError('Unable to resolve Gmail label')
+        body = {
+            'addLabelIds': [label_id],
+            'removeLabelIds': ['INBOX', 'UNREAD'],
+        }
+        service.users().messages().modify(userId='me', id=message_id, body=body).execute()
+        self.monitor.add_event('info', f'[{account_name}] Moved email to spam folder', {'folder': label_name, 'account': account_name})
 
 
 class ProcessorWorker:
