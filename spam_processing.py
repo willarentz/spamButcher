@@ -504,8 +504,24 @@ class EmailProcessor:
         mail = None
         processed = 0
         try:
-            mail = imaplib.IMAP4_SSL(account['imap_host'])
-            mail.login(account['imap_username'], account['imap_password'])
+            try:
+                mail = imaplib.IMAP4_SSL(account['imap_host'])
+                mail.login(account['imap_username'], account['imap_password'])
+            except OSError as exc:
+                self.monitor.add_event(
+                    'error',
+                    f'[{account_name}] Unable to connect to IMAP host {account["imap_host"]}: {exc}',
+                    {'account': account_name},
+                )
+                return 0
+            except imaplib.IMAP4.error as exc:
+                self.monitor.add_event(
+                    'error',
+                    f'[{account_name}] IMAP authentication failed: {exc}',
+                    {'account': account_name},
+                )
+                return 0
+
             folder = account.get('imap_folder', 'INBOX')
             status, _ = mail.select(folder)
             if status != 'OK':
@@ -546,6 +562,13 @@ class EmailProcessor:
                         account.get('spam_folder', 'SpamAI'),
                         account_name,
                     )
+            return processed
+        except Exception as exc:
+            self.monitor.add_event(
+                'error',
+                f'[{account_name}] Processing failed: {exc}',
+                {'account': account_name},
+            )
             return processed
         finally:
             if mail is not None:

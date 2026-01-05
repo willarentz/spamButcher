@@ -12,6 +12,8 @@ import os
 import shutil
 from copy import deepcopy
 
+import requests
+
 from spam_processing import (
     ConfigManager,
     DEFAULT_CONFIG,
@@ -180,6 +182,33 @@ def api_emails():
     limit = _parse_int(request.args.get('limit', 25), 25)
     limit = max(1, min(limit, 200))
     return jsonify(database.recent_emails(limit))
+
+
+@app.route('/api/ollama/models')
+def api_ollama_models():
+    config = config_manager.get_config()
+    default_base = DEFAULT_CONFIG['ollama']['base_url']
+    base_url = request.args.get('base_url') or config.get('ollama', {}).get('base_url') or default_base
+    base_url = (base_url or default_base).rstrip('/')
+    if not base_url:
+        base_url = default_base.rstrip('/')
+    url = f'{base_url}/api/tags'
+    try:
+        response = requests.get(url, timeout=5)
+        response.raise_for_status()
+        data = response.json() or {}
+        models_data = data.get('models') or data.get('tags') or []
+        models = []
+        for item in models_data:
+            if isinstance(item, str):
+                models.append(item)
+            elif isinstance(item, dict):
+                name = item.get('name') or item.get('model')
+                if name:
+                    models.append(name)
+        return jsonify({'models': models})
+    except Exception as exc:
+        return jsonify({'models': [], 'error': str(exc)}), 502
 
 
 @app.route('/api/emails/<path:message_id>')

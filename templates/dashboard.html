@@ -320,7 +320,14 @@
                                             </div>
                                             <div class="form-group col-md-6">
                                                 <label for="ollama_model">Model</label>
-                                                <input type="text" class="form-control" id="ollama_model" name="ollama_model" value="{{ config.ollama.model }}">
+                                                <select class="form-control" id="ollama_model" name="ollama_model" data-current-value="{{ config.ollama.model }}">
+                                                    {% if config.ollama.model %}
+                                                        <option value="{{ config.ollama.model }}" selected>{{ config.ollama.model }}</option>
+                                                    {% else %}
+                                                        <option value="" disabled selected>Loading models…</option>
+                                                    {% endif %}
+                                                </select>
+                                                <small class="form-text text-muted" id="ollama-model-feedback"></small>
                                             </div>
                                         </div>
                                     </div>
@@ -421,6 +428,7 @@
     <script>
         const statusEndpoint = "{{ url_for('api_status') }}";
         const emailsEndpoint = "{{ url_for('api_emails') }}";
+        const ollamaModelsEndpoint = "{{ url_for('api_ollama_models') }}";
         const statusState = {{ status|tojson }};
         const emailsState = {{ emails|tojson }};
 
@@ -522,6 +530,113 @@
             toggleSections();
         }
 
+        const ollamaModelSelect = document.getElementById('ollama_model');
+        const ollamaModelFeedback = document.getElementById('ollama-model-feedback');
+        const ollamaBaseUrlInput = document.getElementById('ollama_base_url');
+        const initialOllamaModelValue = ollamaModelSelect
+            ? (ollamaModelSelect.dataset.current_value || ollamaModelSelect.dataset.currentValue || ollamaModelSelect.value || '')
+            : '';
+        let ollamaModelsRequestId = 0;
+        let savedOllamaModel = initialOllamaModelValue;
+
+        function renderOllamaModelOptions(models, placeholderText, disableSelect = false) {
+            if (!ollamaModelSelect) {
+                return;
+            }
+            const uniqueModels = [];
+            const seen = new Set();
+            (models || []).forEach((model) => {
+                if (typeof model !== 'string' || seen.has(model)) {
+                    return;
+                }
+                seen.add(model);
+                uniqueModels.push(model);
+            });
+            const preferred = savedOllamaModel || '';
+            ollamaModelSelect.innerHTML = '';
+            const placeholder = document.createElement('option');
+            placeholder.value = '';
+            placeholder.disabled = true;
+            placeholder.textContent =
+                placeholderText || (uniqueModels.length ? 'Select a model' : 'No models detected');
+            if (uniqueModels.length === 0) {
+                placeholder.selected = true;
+            }
+            ollamaModelSelect.appendChild(placeholder);
+            uniqueModels.forEach((model) => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model;
+                ollamaModelSelect.appendChild(option);
+            });
+            if (uniqueModels.length > 0) {
+                if (preferred && seen.has(preferred)) {
+                    ollamaModelSelect.value = preferred;
+                    savedOllamaModel = preferred;
+                } else {
+                    ollamaModelSelect.value = uniqueModels[0];
+                    savedOllamaModel = uniqueModels[0];
+                }
+            } else {
+                savedOllamaModel = '';
+            }
+            const disable = disableSelect || uniqueModels.length === 0;
+            ollamaModelSelect.disabled = disable;
+        }
+
+        function loadOllamaModels() {
+            if (!ollamaBaseUrlInput) {
+                return;
+            }
+            const baseUrl = ollamaBaseUrlInput.value.trim();
+            if (!baseUrl) {
+                renderOllamaModelOptions([], 'Enter a base URL to load models', true);
+                if (ollamaModelFeedback) {
+                    ollamaModelFeedback.textContent = 'Enter a base URL to load models';
+                }
+                return;
+            }
+            const params = new URLSearchParams();
+            params.set('base_url', baseUrl);
+            const requestId = ++ollamaModelsRequestId;
+            if (ollamaModelFeedback) {
+                ollamaModelFeedback.textContent = 'Loading models…';
+            }
+            fetch(`${ollamaModelsEndpoint}?${params.toString()}`)
+                .then((response) => {
+                    if (!response.ok) {
+                        throw new Error('Failed to load models');
+                    }
+                    return response.json();
+                })
+                .then((data) => {
+                    if (requestId !== ollamaModelsRequestId) {
+                        return;
+                    }
+                    const models = Array.isArray(data.models) ? data.models : [];
+                    renderOllamaModelOptions(models);
+                    if (ollamaModelFeedback) {
+                        if (models.length > 0) {
+                            const plural = models.length === 1 ? '' : 's';
+                            ollamaModelFeedback.textContent = `${models.length} model${plural} detected`;
+                        } else if (data.error) {
+                            ollamaModelFeedback.textContent = 'Unable to load models';
+                        } else {
+                            ollamaModelFeedback.textContent = 'No models found on this Ollama host';
+                        }
+                    }
+                })
+                .catch(() => {
+                    if (requestId !== ollamaModelsRequestId) {
+                        return;
+                    }
+                    renderOllamaModelOptions([], 'Unable to load models', true);
+                    if (ollamaModelFeedback) {
+                        ollamaModelFeedback.textContent = 'Unable to load models';
+                    }
+                });
+        }
+
         const accountsContainer = document.getElementById('accounts-container');
         const accountTemplate = document.getElementById('account-template');
         const addAccountBtn = document.getElementById('add-account-btn');
@@ -574,6 +689,20 @@
             });
         }
 
+        if (ollamaBaseUrlInput) {
+            ['change', 'blur'].forEach((eventName) => {
+                ollamaBaseUrlInput.addEventListener(eventName, loadOllamaModels);
+            });
+        }
+        if (ollamaModelSelect) {
+            ollamaModelSelect.addEventListener('change', () => {
+                savedOllamaModel = ollamaModelSelect.value || '';
+            });
+        }
+        if (window.jQuery) {
+            $('#configModal').on('shown.bs.modal', () => loadOllamaModels());
+        }
+
         const configForm = document.getElementById('config-form');
         if (configForm) {
             configForm.addEventListener('submit', () => refreshAccountIndices());
@@ -583,6 +712,7 @@
         renderEmails(emailsState);
         renderEvents(statusState.events || []);
         setupProviderSections();
+        loadOllamaModels();
         refreshAccountIndices();
         setInterval(refreshData, 5000);
 

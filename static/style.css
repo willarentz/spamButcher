@@ -10,9 +10,18 @@ body {
     max-width: 1200px;
 }
 
+.config-modal .config-form {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
 .config-modal .modal-body {
+    flex: 1 1 auto;
     max-height: calc(100vh - 220px);
     overflow-y: auto;
+    min-height: 0;
 }
 
 .config-modal .nav-tabs {
