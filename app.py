@@ -10,6 +10,7 @@ from flask import (
 import json
 import os
 import shutil
+from copy import deepcopy
 
 from spam_processing import (
     ConfigManager,
@@ -60,6 +61,38 @@ def _parse_int(value, default):
         return default
 
 
+def _parse_accounts(form):
+    count = _parse_int(form.get('accounts-count'), 0)
+    accounts = []
+    for idx in range(count):
+        prefix = f'accounts-{idx}-'
+        name = form.get(prefix + 'name', '').strip()
+        imap_host = form.get(prefix + 'imap_host', '').strip()
+        imap_username = form.get(prefix + 'imap_username', '').strip()
+        imap_password = form.get(prefix + 'imap_password', '').strip()
+        imap_folder = form.get(prefix + 'imap_folder', 'INBOX').strip() or 'INBOX'
+        spam_folder = form.get(prefix + 'spam_folder', 'SpamAI').strip() or 'SpamAI'
+        download_max = max(1, _parse_int(form.get(prefix + 'download_max'), DEFAULT_CONFIG['accounts'][0]['download_max']))
+        enabled = form.get(prefix + 'enabled') == 'on'
+        if not (imap_host and imap_username and imap_password):
+            continue
+        accounts.append(
+            {
+                'name': name or f'Account {len(accounts) + 1}',
+                'imap_host': imap_host,
+                'imap_username': imap_username,
+                'imap_password': imap_password,
+                'imap_folder': imap_folder,
+                'spam_folder': spam_folder,
+                'download_max': download_max,
+                'enabled': enabled,
+            }
+        )
+    if not accounts:
+        accounts = deepcopy(DEFAULT_CONFIG['accounts'])
+    return accounts
+
+
 @app.route('/')
 def dashboard():
     context = {
@@ -74,13 +107,9 @@ def dashboard():
 @app.route('/config', methods=['POST'])
 def update_config():
     form = request.form
+    accounts = _parse_accounts(form)
     updates = {
-        'imap_host': form.get('imap_host', '').strip(),
-        'imap_username': form.get('imap_username', '').strip(),
-        'imap_password': form.get('imap_password', '').strip(),
-        'imap_folder': form.get('imap_folder', 'INBOX').strip() or 'INBOX',
-        'spam_folder': form.get('spam_folder', 'SpamAI').strip() or 'SpamAI',
-        'download_max': _parse_int(form.get('download_max'), DEFAULT_CONFIG['download_max']),
+        'accounts': accounts,
         'poll_interval_seconds': _parse_int(
             form.get('poll_interval_seconds'),
             DEFAULT_CONFIG['poll_interval_seconds'],
@@ -155,7 +184,8 @@ def api_emails():
 
 @app.route('/api/emails/<path:message_id>')
 def api_email_detail(message_id):
-    email_record = database.get_email(message_id)
+    account_name = request.args.get('account')
+    email_record = database.get_email(message_id, account_name)
     if not email_record:
         return jsonify({'error': 'Email not found'}), 404
     return jsonify(email_record)

@@ -20,12 +20,18 @@ CONFIG_PATH = 'config.json'
 
 
 DEFAULT_CONFIG: Dict[str, Any] = {
-    "imap_host": "",
-    "imap_username": "",
-    "imap_password": "",
-    "imap_folder": "INBOX",
-    "spam_folder": "SpamAI",
-    "download_max": 50,
+    "accounts": [
+        {
+            "name": "Primary",
+            "imap_host": "",
+            "imap_username": "",
+            "imap_password": "",
+            "imap_folder": "INBOX",
+            "spam_folder": "SpamAI",
+            "download_max": 50,
+            "enabled": True,
+        }
+    ],
     "poll_interval_seconds": 600,
     "llm_provider": "ollama",
     "system_prompt": (
@@ -73,6 +79,21 @@ class ConfigManager:
         else:
             data = {}
         config = deep_merge(json.loads(json.dumps(DEFAULT_CONFIG)), data)
+        legacy_fields = ['imap_host', 'imap_username', 'imap_password']
+        if any(field in data for field in legacy_fields) and not data.get('accounts'):
+            account = {
+                'name': data.get('account_name') or 'Primary',
+                'imap_host': data.get('imap_host', ''),
+                'imap_username': data.get('imap_username', ''),
+                'imap_password': data.get('imap_password', ''),
+                'imap_folder': data.get('imap_folder', 'INBOX'),
+                'spam_folder': data.get('spam_folder', 'SpamAI'),
+                'download_max': int(data.get('download_max', 50) or 50),
+                'enabled': True,
+            }
+            config['accounts'] = [account]
+        if not config.get('accounts'):
+            config['accounts'] = json.loads(json.dumps(DEFAULT_CONFIG['accounts']))
         self._write(config)
         return config
 
@@ -158,27 +179,52 @@ class EmailDatabase:
 
     def _ensure_table(self) -> None:
         conn = self._connect()
-        conn.execute(
-            '''CREATE TABLE IF NOT EXISTS emails
-               (id TEXT PRIMARY KEY, subject TEXT, date TEXT, from_email TEXT,
-                to_email TEXT, html_body TEXT, plain_text_body TEXT, is_spam BOOLEAN)'''
-        )
+        cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='emails'")
+        if cur.fetchone() is None:
+            conn.execute(
+                '''CREATE TABLE emails
+                   (id TEXT, account_name TEXT, subject TEXT, date TEXT, from_email TEXT,
+                    to_email TEXT, html_body TEXT, plain_text_body TEXT, is_spam BOOLEAN,
+                    PRIMARY KEY (id, account_name))'''
+            )
+        else:
+            columns = [row[1] for row in conn.execute('PRAGMA table_info(emails)')]
+            if columns and ('account_name' not in columns or len(columns) != 9):
+                conn.execute('ALTER TABLE emails RENAME TO emails_old')
+                conn.execute(
+                    '''CREATE TABLE emails
+                       (id TEXT, account_name TEXT, subject TEXT, date TEXT, from_email TEXT,
+                        to_email TEXT, html_body TEXT, plain_text_body TEXT, is_spam BOOLEAN,
+                        PRIMARY KEY (id, account_name))'''
+                )
+                if 'account_name' in columns:
+                    account_expr = 'account_name'
+                else:
+                    account_expr = "'Primary'"
+                conn.execute(
+                    '''INSERT OR REPLACE INTO emails
+                       (id, account_name, subject, date, from_email, to_email, html_body, plain_text_body, is_spam)
+                       SELECT id, ''' + account_expr + ''', subject, date, from_email, to_email, html_body, plain_text_body, is_spam
+                       FROM emails_old'''
+                )
+                conn.execute('DROP TABLE emails_old')
         conn.commit()
         conn.close()
 
-    def email_exists(self, message_id: str) -> bool:
+    def email_exists(self, message_id: str, account_name: str) -> bool:
         conn = self._connect()
-        cur = conn.execute('SELECT 1 FROM emails WHERE id=?', (message_id,))
+        cur = conn.execute('SELECT 1 FROM emails WHERE id=? AND account_name=?', (message_id, account_name))
         row = cur.fetchone()
         conn.close()
         return row is not None
 
-    def insert_email(self, email_payload: Dict[str, Any]) -> None:
+    def insert_email(self, email_payload: Dict[str, Any], account_name: str) -> None:
         conn = self._connect()
         conn.execute(
-            'INSERT OR IGNORE INTO emails VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+            'INSERT OR IGNORE INTO emails VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
             (
                 email_payload['id'],
+                account_name,
                 email_payload.get('subject'),
                 email_payload.get('date'),
                 email_payload.get('from'),
@@ -194,7 +240,7 @@ class EmailDatabase:
     def recent_emails(self, limit: int = 25) -> List[Dict[str, Any]]:
         conn = self._connect()
         cur = conn.execute(
-            'SELECT id, subject, date, from_email, to_email, is_spam FROM emails '
+            'SELECT id, account_name, subject, date, from_email, to_email, is_spam FROM emails '
             'ORDER BY rowid DESC LIMIT ?',
             (limit,),
         )
@@ -208,12 +254,18 @@ class EmailDatabase:
         conn.commit()
         conn.close()
 
-    def get_email(self, message_id: str) -> Optional[Dict[str, Any]]:
+    def get_email(self, message_id: str, account_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
         conn = self._connect()
-        cur = conn.execute(
-            'SELECT * FROM emails WHERE id=?',
-            (message_id,),
-        )
+        if account_name:
+            cur = conn.execute(
+                'SELECT * FROM emails WHERE id=? AND account_name=?',
+                (message_id, account_name),
+            )
+        else:
+            cur = conn.execute(
+                'SELECT * FROM emails WHERE id=? ORDER BY rowid DESC LIMIT 1',
+                (message_id,),
+            )
         row = cur.fetchone()
         conn.close()
         if not row:
@@ -420,58 +472,80 @@ class EmailProcessor:
 
     def process_new_messages(self) -> int:
         config = self.config_manager.get_config()
+        accounts = [account for account in config.get('accounts', []) if account]
+        if not accounts:
+            self.monitor.add_event('warning', 'No IMAP accounts configured')
+            return 0
+        active_accounts = [account for account in accounts if account.get('enabled', True)]
+        if not active_accounts:
+            self.monitor.add_event('warning', 'All IMAP accounts are disabled')
+            return 0
+        total_processed = 0
+        for account in active_accounts:
+            total_processed += self._process_account(account, config)
+        return total_processed
+
+    def _process_account(self, account: Dict[str, Any], global_config: Dict[str, Any]) -> int:
+        account_name = account.get('name') or account.get('imap_username') or 'Account'
         required = [
             field
             for field in ('imap_host', 'imap_username', 'imap_password')
-            if not config.get(field)
+            if not account.get(field)
         ]
         if required:
             self.monitor.add_event(
                 'warning',
-                f"IMAP settings incomplete: {', '.join(required)}",
+                f"[{account_name}] IMAP settings incomplete: {', '.join(required)}",
+                {'account': account_name},
             )
             return 0
 
-        download_max = int(config.get('download_max', 50) or 50)
+        download_max = int(account.get('download_max', 50) or 50)
         mail = None
         processed = 0
         try:
-            mail = imaplib.IMAP4_SSL(config['imap_host'])
-            mail.login(config['imap_username'], config['imap_password'])
-            folder = config.get('imap_folder', 'INBOX')
+            mail = imaplib.IMAP4_SSL(account['imap_host'])
+            mail.login(account['imap_username'], account['imap_password'])
+            folder = account.get('imap_folder', 'INBOX')
             status, _ = mail.select(folder)
             if status != 'OK':
                 raise RuntimeError(f'Unable to select folder {folder}')
             unread = self._fetch_unread_messages(mail, download_max)
             if not unread:
-                self.monitor.add_event('info', 'No unread emails found')
+                self.monitor.add_event('info', f'[{account_name}] No unread emails found', {'account': account_name})
                 return 0
-            client = build_llm_client(config)
+            client = build_llm_client(global_config)
             for message in unread:
-                if self.database.email_exists(message['id']):
+                if self.database.email_exists(message['id'], account_name):
                     continue
                 prompt = formatting_function(message)
                 try:
-                    raw = client.generate(prompt, config.get('system_prompt', ''))
+                    raw = client.generate(prompt, global_config.get('system_prompt', ''))
                     classification = self._interpret_response(raw)
                 except Exception as exc:
                     self.monitor.add_event(
                         'error',
-                        f"Failed to classify email {message['subject']}: {exc}",
+                        f"[{account_name}] Failed to classify email {message['subject']}: {exc}",
+                        {'account': account_name},
                     )
                     continue
                 message['isSpam'] = classification['is_spam']
-                self.database.insert_email(message)
+                self.database.insert_email(message, account_name)
                 processed += 1
                 level = 'warning' if classification['is_spam'] else 'info'
                 self.monitor.add_event(
                     level,
-                    f"Email '{message['subject']}' flagged as "
+                    f"[{account_name}] Email '{message['subject']}' flagged as "
                     f"{'spam' if classification['is_spam'] else 'ham'}",
-                    {'reason': classification.get('reason', '')},
+                    {'reason': classification.get('reason', ''), 'account': account_name},
                 )
                 if classification['is_spam']:
-                    self._move_to_spam(mail, message['e_id'], config.get('spam_folder', 'SpamAI'))
+                    self._move_to_spam(
+                        mail,
+                        message['e_id'],
+                        account.get('spam_folder', 'SpamAI'),
+                        account_name,
+                    )
             return processed
         finally:
             if mail is not None:
@@ -539,15 +613,15 @@ class EmailProcessor:
         is_spam = bool(data.get('isSpam') or data.get('is_spam'))
         return {'is_spam': is_spam, 'reason': data.get('reason', '')}
 
-    def _move_to_spam(self, mail: imaplib.IMAP4_SSL, e_id: bytes, folder: str) -> None:
+    def _move_to_spam(self, mail: imaplib.IMAP4_SSL, e_id: bytes, folder: str, account_name: str) -> None:
         try:
             status, _ = mail.copy(e_id, folder)
             if status != 'OK':
                 raise RuntimeError('copy failed')
             mail.store(e_id, '+FLAGS', '\\Deleted')
-            self.monitor.add_event('info', 'Moved email to spam folder', {'folder': folder})
+            self.monitor.add_event('info', f'[{account_name}] Moved email to spam folder', {'folder': folder, 'account': account_name})
         except Exception as exc:
-            self.monitor.add_event('error', f'Unable to move spam email: {exc}')
+            self.monitor.add_event('error', f'[{account_name}] Unable to move spam email: {exc}', {'account': account_name})
 
 
 class ProcessorWorker:

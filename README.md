@@ -4,6 +4,7 @@ SpamButcher is an intelligent (Ollama / OpenAI / Gemini) email filtering tool th
 
 ## Key Features
 - **Flexible LLM pipeline** – plug into a local Ollama model or hosted OpenAI / Gemini models by changing a dropdown.
+- **Multi-account IMAP support** – onboard any number of inboxes, each with its own folders, and process them in a single run.
 - **Automatic inbox hygiene** – unread emails are normalized, stored in SQLite, and copy/moved to your `SpamAI` folder when marked as spam.
 - **Web control center** – live status cards, processed-email log with drill-down details, and an event feed surface everything happening in real time.
 - **Inline configuration** – IMAP credentials, poll interval, and provider-specific settings are editable from the dashboard modal and persisted to `config.json`.

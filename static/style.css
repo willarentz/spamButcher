@@ -6,6 +6,22 @@ body {
     color: #1f2933;
 }
 
+.config-modal .modal-dialog {
+    max-width: 1200px;
+}
+
+.config-modal .modal-body {
+    max-height: calc(100vh - 220px);
+    overflow-y: auto;
+}
+
+.config-modal .nav-tabs {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #fff;
+}
+
 .header-panel {
     background: #ffffff;
     border-radius: 16px;
@@ -176,6 +192,25 @@ body {
     min-width: 900px;
 }
 
+.account-card {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 1rem;
+    background: #fdfdfd;
+}
+
+.account-card:last-child {
+    margin-bottom: 0;
+}
+
+.account-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.75rem;
+}
+
 .email-row {
     cursor: pointer;
     transition: background 0.15s ease;
@@ -277,6 +312,16 @@ body {
 
 .event-item.level-info .level {
     color: #2563eb;
+}
+
+.event-account {
+    display: inline-block;
+    margin-left: 0.5rem;
+    padding: 0.1rem 0.5rem;
+    font-size: 0.75rem;
+    border-radius: 999px;
+    background: #e0f2fe;
+    color: #0369a1;
 }
 
 .config-form fieldset {

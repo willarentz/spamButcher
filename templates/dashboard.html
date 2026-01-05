@@ -16,7 +16,7 @@
                 <p class="subtext">Monitor processing, inspect classifications, and adjust the pipeline instantly.</p>
                 <div class="meta-chips">
                     <span class="chip">Provider: {{ config.llm_provider|title }}</span>
-                    <span class="chip">Spam folder: {{ config.spam_folder }}</span>
+                    <span class="chip">Accounts: {{ config.accounts|length }}</span>
                     <span class="chip">Worker: {{ 'Running' if worker_thread_running else 'Stopped' }}</span>
                 </div>
             </div>
@@ -111,16 +111,18 @@
                             <th>From</th>
                             <th>To</th>
                             <th>Date</th>
+                            <th>Account</th>
                             <th>Classification</th>
                         </tr>
                     </thead>
                     <tbody id="emails-body">
                         {% for email in emails %}
-                            <tr class="email-row" data-email-id="{{ email.id }}">
+                            <tr class="email-row" data-email-id="{{ email.id }}" data-account-name="{{ email.account_name }}">
                                 <td>{{ email.subject or '(no subject)' }}</td>
                                 <td>{{ email.from_email }}</td>
                                 <td>{{ email.to_email }}</td>
                                 <td>{{ email.date }}</td>
+                                <td>{{ email.account_name }}</td>
                                 <td>
                                     {% if email.is_spam %}
                                         <span class="badge-spam">Spam</span>
@@ -146,6 +148,9 @@
                         <span class="time">{{ event.timestamp }}</span>
                         <span class="level">{{ event.level|upper }}</span>
                         <span class="message">{{ event.message }}</span>
+                        {% if event.extra and event.extra.account %}
+                            <span class="event-account">{{ event.extra.account }}</span>
+                        {% endif %}
                     </li>
                 {% endfor %}
             </ul>
@@ -187,6 +192,10 @@
                             <dd id="detailClassification">—</dd>
                         </div>
                         <div>
+                            <dt>Account</dt>
+                            <dd id="detailAccount">—</dd>
+                        </div>
+                        <div>
                             <dt>Message ID</dt>
                             <dd id="detailId">—</dd>
                         </div>
@@ -203,7 +212,7 @@
         </div>
     </div>
 
-    <div class="modal fade" id="configModal" tabindex="-1" role="dialog" aria-labelledby="configModalLabel" aria-hidden="true">
+    <div class="modal fade config-modal" id="configModal" tabindex="-1" role="dialog" aria-labelledby="configModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-xl modal-dialog-scrollable" role="document">
             <div class="modal-content">
                 <div class="modal-header">
@@ -215,108 +224,143 @@
                         <span aria-hidden="true">&times;</span>
                     </button>
                 </div>
-                <form class="config-form" method="post" action="{{ url_for('update_config') }}">
+                <form class="config-form" id="config-form" method="post" action="{{ url_for('update_config') }}">
                     <div class="modal-body">
-                        <fieldset>
-                            <legend>IMAP Settings</legend>
-                            <div class="form-row">
-                                <div class="form-group col-md-4">
-                                    <label for="imap_host">IMAP Host</label>
-                                    <input type="text" class="form-control" id="imap_host" name="imap_host" value="{{ config.imap_host }}" required autocapitalize="none" spellcheck="false">
+                        <ul class="nav nav-tabs" id="configTabs" role="tablist">
+                            <li class="nav-item">
+                                <a class="nav-link active" id="accounts-tab-link" data-toggle="tab" href="#accounts-tab" role="tab" aria-controls="accounts-tab" aria-selected="true">Accounts & Polling</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" id="llm-tab-link" data-toggle="tab" href="#llm-tab" role="tab" aria-controls="llm-tab" aria-selected="false">LLM Settings</a>
+                            </li>
+                        </ul>
+                        <div class="tab-content p-3" id="configTabsContent">
+                            <div class="tab-pane fade show active" id="accounts-tab" role="tabpanel" aria-labelledby="accounts-tab-link">
+                                <p class="text-muted">Add as many IMAP inboxes as you need. Each account runs through the same LLM policy.</p>
+                                <input type="hidden" name="accounts-count" id="accounts-count" value="{{ config.accounts|length }}">
+                                <div id="accounts-container">
+                                    {% for account in config.accounts %}
+                                        <div class="account-card" data-index="{{ loop.index0 }}">
+                                            <div class="account-card-header">
+                                                <div class="form-check">
+                                                    <input class="form-check-input" type="checkbox" id="accounts-{{ loop.index0 }}-enabled" name="accounts-{{ loop.index0 }}-enabled" data-field="enabled" {% if account.enabled %}checked{% endif %}>
+                                                    <label class="form-check-label" for="accounts-{{ loop.index0 }}-enabled">Enabled</label>
+                                                </div>
+                                                {% if config.accounts|length > 1 %}
+                                                    <button type="button" class="btn btn-sm btn-outline-danger remove-account">Remove</button>
+                                                {% endif %}
+                                            </div>
+                                            <div class="form-row">
+                                                <div class="form-group col-md-4">
+                                                    <label>Label</label>
+                                                    <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-name" data-field="name" value="{{ account.name }}" placeholder="Marketing Inbox">
+                                                </div>
+                                                <div class="form-group col-md-4">
+                                                    <label>IMAP Host</label>
+                                                    <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-imap_host" data-field="imap_host" value="{{ account.imap_host }}" required autocapitalize="none" spellcheck="false">
+                                                </div>
+                                                <div class="form-group col-md-4">
+                                                    <label>Username</label>
+                                                    <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-imap_username" data-field="imap_username" value="{{ account.imap_username }}" required autocapitalize="none" spellcheck="false">
+                                                </div>
+                                            </div>
+                                            <div class="form-row">
+                                                <div class="form-group col-md-4">
+                                                    <label>Password</label>
+                                                    <input type="password" class="form-control" name="accounts-{{ loop.index0 }}-imap_password" data-field="imap_password" value="{{ account.imap_password }}" required autocapitalize="none">
+                                                </div>
+                                                <div class="form-group col-md-3">
+                                                    <label>Inbox Folder</label>
+                                                    <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-imap_folder" data-field="imap_folder" value="{{ account.imap_folder }}">
+                                                </div>
+                                                <div class="form-group col-md-3">
+                                                    <label>Spam Folder</label>
+                                                    <input type="text" class="form-control" name="accounts-{{ loop.index0 }}-spam_folder" data-field="spam_folder" value="{{ account.spam_folder }}">
+                                                </div>
+                                                <div class="form-group col-md-2">
+                                                    <label>Max/Cycle</label>
+                                                    <input type="number" min="1" class="form-control" name="accounts-{{ loop.index0 }}-download_max" data-field="download_max" value="{{ account.download_max }}">
+                                                </div>
+                                            </div>
+                                        </div>
+                                    {% endfor %}
                                 </div>
-                                <div class="form-group col-md-4">
-                                    <label for="imap_username">Username</label>
-                                    <input type="text" class="form-control" id="imap_username" name="imap_username" value="{{ config.imap_username }}" required autocapitalize="none" spellcheck="false">
-                                </div>
-                                <div class="form-group col-md-4">
-                                    <label for="imap_password">Password</label>
-                                    <input type="password" class="form-control" id="imap_password" name="imap_password" value="{{ config.imap_password }}" required autocapitalize="none">
+                                <button type="button" class="btn btn-outline-primary mt-3" id="add-account-btn">Add Account</button>
+                                <div class="form-row mt-3">
+                                    <div class="form-group col-md-4">
+                                        <label for="poll_interval_seconds">Poll Interval (seconds)</label>
+                                        <input type="number" min="30" class="form-control" id="poll_interval_seconds" name="poll_interval_seconds" value="{{ config.poll_interval_seconds }}">
+                                    </div>
                                 </div>
                             </div>
-                            <div class="form-row">
-                                <div class="form-group col-md-3">
-                                    <label for="imap_folder">Inbox Folder</label>
-                                    <input type="text" class="form-control" id="imap_folder" name="imap_folder" value="{{ config.imap_folder }}">
-                                </div>
-                                <div class="form-group col-md-3">
-                                    <label for="spam_folder">Spam Folder</label>
-                                    <input type="text" class="form-control" id="spam_folder" name="spam_folder" value="{{ config.spam_folder }}">
-                                </div>
-                                <div class="form-group col-md-3">
-                                    <label for="download_max">Max Emails Per Cycle</label>
-                                    <input type="number" min="1" class="form-control" id="download_max" name="download_max" value="{{ config.download_max }}">
-                                </div>
-                                <div class="form-group col-md-3">
-                                    <label for="poll_interval_seconds">Poll Interval (sec)</label>
-                                    <input type="number" min="30" class="form-control" id="poll_interval_seconds" name="poll_interval_seconds" value="{{ config.poll_interval_seconds }}">
-                                </div>
-                            </div>
-                        </fieldset>
 
-                        <fieldset>
-                            <legend>LLM Provider</legend>
-                            <div class="form-row">
-                                <div class="form-group col-md-4">
-                                    <label for="llm_provider">Provider</label>
-                                    <select class="form-control" id="llm_provider" name="llm_provider">
-                                        <option value="ollama" {% if config.llm_provider == 'ollama' %}selected{% endif %}>Ollama</option>
-                                        <option value="openai" {% if config.llm_provider == 'openai' %}selected{% endif %}>OpenAI</option>
-                                        <option value="gemini" {% if config.llm_provider == 'gemini' %}selected{% endif %}>Gemini</option>
-                                    </select>
-                                </div>
-                                <div class="form-group col-md-8">
-                                    <label for="system_prompt">System Prompt</label>
-                                    <textarea class="form-control" id="system_prompt" rows="3" name="system_prompt">{{ config.system_prompt }}</textarea>
-                                </div>
+                            <div class="tab-pane fade" id="llm-tab" role="tabpanel" aria-labelledby="llm-tab-link">
+                                <fieldset>
+                                    <legend class="sr-only">LLM Provider</legend>
+                                    <div class="form-row">
+                                        <div class="form-group col-md-4">
+                                            <label for="llm_provider">Provider</label>
+                                            <select class="form-control" id="llm_provider" name="llm_provider">
+                                                <option value="ollama" {% if config.llm_provider == 'ollama' %}selected{% endif %}>Ollama</option>
+                                                <option value="openai" {% if config.llm_provider == 'openai' %}selected{% endif %}>OpenAI</option>
+                                                <option value="gemini" {% if config.llm_provider == 'gemini' %}selected{% endif %}>Gemini</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group col-md-8">
+                                            <label for="system_prompt">System Prompt</label>
+                                            <textarea class="form-control" id="system_prompt" rows="3" name="system_prompt">{{ config.system_prompt }}</textarea>
+                                        </div>
+                                    </div>
+                                    <div class="provider-section {% if config.llm_provider != 'ollama' %}d-none{% endif %}" data-provider="ollama">
+                                        <h5>Ollama Settings</h5>
+                                        <div class="form-row">
+                                            <div class="form-group col-md-6">
+                                                <label for="ollama_base_url">Base URL</label>
+                                                <input type="text" class="form-control" id="ollama_base_url" name="ollama_base_url" value="{{ config.ollama.base_url }}">
+                                            </div>
+                                            <div class="form-group col-md-6">
+                                                <label for="ollama_model">Model</label>
+                                                <input type="text" class="form-control" id="ollama_model" name="ollama_model" value="{{ config.ollama.model }}">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="provider-section {% if config.llm_provider != 'openai' %}d-none{% endif %}" data-provider="openai">
+                                        <h5>OpenAI Settings</h5>
+                                        <div class="form-row">
+                                            <div class="form-group col-md-4">
+                                                <label for="openai_base_url">Base URL</label>
+                                                <input type="text" class="form-control" id="openai_base_url" name="openai_base_url" value="{{ config.openai.base_url }}">
+                                            </div>
+                                            <div class="form-group col-md-4">
+                                                <label for="openai_model">Model</label>
+                                                <input type="text" class="form-control" id="openai_model" name="openai_model" value="{{ config.openai.model }}">
+                                            </div>
+                                            <div class="form-group col-md-4">
+                                                <label for="openai_api_key">API Key</label>
+                                                <input type="password" class="form-control" id="openai_api_key" name="openai_api_key" value="{{ config.openai.api_key }}">
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="provider-section {% if config.llm_provider != 'gemini' %}d-none{% endif %}" data-provider="gemini">
+                                        <h5>Gemini Settings</h5>
+                                        <div class="form-row">
+                                            <div class="form-group col-md-4">
+                                                <label for="gemini_base_url">Base URL</label>
+                                                <input type="text" class="form-control" id="gemini_base_url" name="gemini_base_url" value="{{ config.gemini.base_url }}">
+                                            </div>
+                                            <div class="form-group col-md-4">
+                                                <label for="gemini_model">Model</label>
+                                                <input type="text" class="form-control" id="gemini_model" name="gemini_model" value="{{ config.gemini.model }}">
+                                            </div>
+                                            <div class="form-group col-md-4">
+                                                <label for="gemini_api_key">API Key</label>
+                                                <input type="password" class="form-control" id="gemini_api_key" name="gemini_api_key" value="{{ config.gemini.api_key }}">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </fieldset>
                             </div>
-                            <div class="provider-section {% if config.llm_provider != 'ollama' %}d-none{% endif %}" data-provider="ollama">
-                                <h5>Ollama Settings</h5>
-                                <div class="form-row">
-                                    <div class="form-group col-md-6">
-                                        <label for="ollama_base_url">Base URL</label>
-                                        <input type="text" class="form-control" id="ollama_base_url" name="ollama_base_url" value="{{ config.ollama.base_url }}">
-                                    </div>
-                                    <div class="form-group col-md-6">
-                                        <label for="ollama_model">Model</label>
-                                        <input type="text" class="form-control" id="ollama_model" name="ollama_model" value="{{ config.ollama.model }}">
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="provider-section {% if config.llm_provider != 'openai' %}d-none{% endif %}" data-provider="openai">
-                                <h5>OpenAI Settings</h5>
-                                <div class="form-row">
-                                    <div class="form-group col-md-4">
-                                        <label for="openai_base_url">Base URL</label>
-                                        <input type="text" class="form-control" id="openai_base_url" name="openai_base_url" value="{{ config.openai.base_url }}">
-                                    </div>
-                                    <div class="form-group col-md-4">
-                                        <label for="openai_model">Model</label>
-                                        <input type="text" class="form-control" id="openai_model" name="openai_model" value="{{ config.openai.model }}">
-                                    </div>
-                                    <div class="form-group col-md-4">
-                                        <label for="openai_api_key">API Key</label>
-                                        <input type="password" class="form-control" id="openai_api_key" name="openai_api_key" value="{{ config.openai.api_key }}">
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="provider-section {% if config.llm_provider != 'gemini' %}d-none{% endif %}" data-provider="gemini">
-                                <h5>Gemini Settings</h5>
-                                <div class="form-row">
-                                    <div class="form-group col-md-4">
-                                        <label for="gemini_base_url">Base URL</label>
-                                        <input type="text" class="form-control" id="gemini_base_url" name="gemini_base_url" value="{{ config.gemini.base_url }}">
-                                    </div>
-                                    <div class="form-group col-md-4">
-                                        <label for="gemini_model">Model</label>
-                                        <input type="text" class="form-control" id="gemini_model" name="gemini_model" value="{{ config.gemini.model }}">
-                                    </div>
-                                    <div class="form-group col-md-4">
-                                        <label for="gemini_api_key">API Key</label>
-                                        <input type="password" class="form-control" id="gemini_api_key" name="gemini_api_key" value="{{ config.gemini.api_key }}">
-                                    </div>
-                                </div>
-                            </div>
-                        </fieldset>
+                        </div>
                     </div>
                     <div class="modal-footer">
                         <button type="button" class="btn btn-outline-secondary" data-dismiss="modal">Cancel</button>
@@ -326,6 +370,50 @@
             </div>
         </div>
     </div>
+
+    <template id="account-template">
+        <div class="account-card" data-index="__INDEX__">
+            <div class="account-card-header">
+                <div class="form-check">
+                    <input class="form-check-input" type="checkbox" data-field="enabled">
+                    <label class="form-check-label">Enabled</label>
+                </div>
+                <button type="button" class="btn btn-sm btn-outline-danger remove-account">Remove</button>
+            </div>
+            <div class="form-row">
+                <div class="form-group col-md-4">
+                    <label>Label</label>
+                    <input type="text" class="form-control" data-field="name" placeholder="Support">
+                </div>
+                <div class="form-group col-md-4">
+                    <label>IMAP Host</label>
+                    <input type="text" class="form-control" data-field="imap_host" autocapitalize="none" spellcheck="false">
+                </div>
+                <div class="form-group col-md-4">
+                    <label>Username</label>
+                    <input type="text" class="form-control" data-field="imap_username" autocapitalize="none" spellcheck="false">
+                </div>
+            </div>
+            <div class="form-row">
+                <div class="form-group col-md-4">
+                    <label>Password</label>
+                    <input type="password" class="form-control" data-field="imap_password" autocapitalize="none">
+                </div>
+                <div class="form-group col-md-3">
+                    <label>Inbox Folder</label>
+                    <input type="text" class="form-control" data-field="imap_folder" value="INBOX">
+                </div>
+                <div class="form-group col-md-3">
+                    <label>Spam Folder</label>
+                    <input type="text" class="form-control" data-field="spam_folder" value="SpamAI">
+                </div>
+                <div class="form-group col-md-2">
+                    <label>Max/Cycle</label>
+                    <input type="number" min="1" class="form-control" data-field="download_max" value="50">
+                </div>
+            </div>
+        </div>
+    </template>
 
     <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/popper.js@1.16.1/dist/umd/popper.min.js"></script>
@@ -377,15 +465,17 @@
                 const row = document.createElement('tr');
                 row.className = 'email-row';
                 row.dataset.emailId = item.id;
+                row.dataset.accountName = item.account_name || '';
                 const classification = item.is_spam ? '<span class="badge-spam">Spam</span>' : '<span class="badge-ham">Ham</span>';
                 row.innerHTML = `
                     <td>${escapeHtml(item.subject || '(no subject)')}</td>
                     <td>${escapeHtml(item.from_email || '')}</td>
                     <td>${escapeHtml(item.to_email || '')}</td>
                     <td>${escapeHtml(item.date || '')}</td>
+                    <td>${escapeHtml(item.account_name || '')}</td>
                     <td>${classification}</td>
                 `;
-                row.addEventListener('click', () => openEmailModal(item.id));
+                row.addEventListener('click', () => openEmailModal(item.id, item.account_name));
                 tbody.appendChild(row);
             });
         }
@@ -396,10 +486,12 @@
             events.slice(0, 10).forEach((event) => {
                 const item = document.createElement('li');
                 item.className = `event-item level-${event.level}`;
+                const accountLabel = event.extra && event.extra.account ? `<span class="event-account">${escapeHtml(event.extra.account)}</span>` : '';
                 item.innerHTML = `
                     <span class="time">${escapeHtml(toDisplayTime(event.timestamp))}</span>
                     <span class="level">${escapeHtml(event.level ? event.level.toUpperCase() : '')}</span>
                     <span class="message">${escapeHtml(event.message || '')}</span>
+                    ${accountLabel}
                 `;
                 list.appendChild(item);
             });
@@ -430,10 +522,68 @@
             toggleSections();
         }
 
+        const accountsContainer = document.getElementById('accounts-container');
+        const accountTemplate = document.getElementById('account-template');
+        const addAccountBtn = document.getElementById('add-account-btn');
+        const accountsCountInput = document.getElementById('accounts-count');
+
+        function refreshAccountIndices() {
+            const cards = accountsContainer ? accountsContainer.querySelectorAll('.account-card') : [];
+            cards.forEach((card, idx) => {
+                card.dataset.index = idx;
+                card.querySelectorAll('[data-field]').forEach((input) => {
+                    const field = input.dataset.field;
+                    const name = `accounts-${idx}-${field}`;
+                    input.name = name;
+                    if (input.id && input.id.startsWith('accounts-')) {
+                        input.id = name;
+                    }
+                });
+            });
+            if (accountsCountInput) {
+                accountsCountInput.value = cards.length;
+            }
+        }
+
+        function addAccountCard() {
+            if (!accountTemplate || !accountsContainer) {
+                return;
+            }
+            const fragment = accountTemplate.content.cloneNode(true);
+            accountsContainer.appendChild(fragment);
+            refreshAccountIndices();
+        }
+
+        if (addAccountBtn) {
+            addAccountBtn.addEventListener('click', (event) => {
+                event.preventDefault();
+                addAccountCard();
+            });
+        }
+
+        if (accountsContainer) {
+            accountsContainer.addEventListener('click', (event) => {
+                if (event.target.closest('.remove-account')) {
+                    event.preventDefault();
+                    const card = event.target.closest('.account-card');
+                    if (card) {
+                        card.remove();
+                        refreshAccountIndices();
+                    }
+                }
+            });
+        }
+
+        const configForm = document.getElementById('config-form');
+        if (configForm) {
+            configForm.addEventListener('submit', () => refreshAccountIndices());
+        }
+
         renderStatus(statusState);
         renderEmails(emailsState);
         renderEvents(statusState.events || []);
         setupProviderSections();
+        refreshAccountIndices();
         setInterval(refreshData, 5000);
 
         function setDetailField(id, value, allowHtml = false) {
@@ -454,16 +604,18 @@
             return `<span class="${cls}">${label}</span>`;
         }
 
-        function openEmailModal(emailId) {
+        function openEmailModal(emailId, accountName) {
             setDetailField('detailSubject', 'Loading...');
             setDetailField('detailFrom', 'Loading...');
             setDetailField('detailTo', 'Loading...');
             setDetailField('detailDate', 'Loading...');
             setDetailField('detailClassification', 'Loading...');
+            setDetailField('detailAccount', accountName || 'Loading...');
             setDetailField('detailId', escapeHtml(emailId));
             document.getElementById('detailBody').textContent = 'Loading email body...';
             $('#emailModal').modal('show');
-            fetch(`${emailsEndpoint}/${encodeURIComponent(emailId)}`)
+            const accountParam = accountName ? `?account=${encodeURIComponent(accountName)}` : '';
+            fetch(`${emailsEndpoint}/${encodeURIComponent(emailId)}${accountParam}`)
                 .then((response) => {
                     if (!response.ok) {
                         throw new Error('Unable to load email detail');
@@ -476,6 +628,7 @@
                     setDetailField('detailTo', data.to_email || '');
                     setDetailField('detailDate', data.date || '');
                     setDetailField('detailClassification', classifyBadge(Boolean(data.is_spam)), true);
+                    setDetailField('detailAccount', data.account_name || accountName || '');
                     setDetailField('detailId', data.id || emailId);
                     const body = data.plain_text_body || data.html_body || '(no body)';
                     document.getElementById('detailBody').textContent = body;
@@ -483,6 +636,7 @@
                 .catch(() => {
                     document.getElementById('detailBody').textContent = 'Unable to load email details.';
                     setDetailField('detailClassification', '<span class="text-danger">Error</span>', true);
+                    setDetailField('detailAccount', accountName || 'Unknown');
                 });
         }
     </script>
