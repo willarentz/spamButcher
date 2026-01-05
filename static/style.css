@@ -1,60 +1,340 @@
-/* style.css */
 body {
     font-family: Arial, sans-serif;
     margin: 0;
     padding: 0;
-    /* display: flex; */
-    justify-content: center;
-    align-items: center;
-    height: 100vh;
-    background-color: #f0f0f0;
+    background-color: #f4f6f8;
+    color: #1f2933;
 }
-table {
+
+.header-panel {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 1.25rem 1.5rem;
+    border: 1px solid #e1e5ea;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+}
+
+.header-text {
+    flex: 1 1 320px;
+}
+
+.header-text h1 {
+    font-size: 1.85rem;
+    margin-bottom: 0.35rem;
+}
+
+.header-text .subtext {
+    margin: 0;
+    color: #4c566a;
+}
+
+.meta-chips {
+    margin-top: 0.75rem;
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.chip {
+    background: #f1f5f9;
+    border: 1px solid #d1d5db;
+    border-radius: 999px;
+    padding: 0.25rem 0.85rem;
+    font-size: 0.85rem;
+    color: #0f172a;
+}
+
+.eyebrow {
+    text-transform: uppercase;
+    letter-spacing: 0.2em;
+    font-size: 0.72rem;
+    margin-bottom: 0.3rem;
+    color: #94a3b8;
+}
+
+.header-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    flex: 0 0 auto;
+    align-items: flex-end;
+}
+
+.header-actions form {
+    margin: 0;
+}
+
+.primary-actions,
+.secondary-actions {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.btn-ghost {
+    border: 1px solid #d1d5db;
+    color: #0f172a;
+    padding: 0.5rem 1.5rem;
+}
+
+.btn-ghost:hover {
+    background: #f1f5f9;
+    color: #0f172a;
+}
+
+@media (max-width: 768px) {
+    .header-panel {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .header-actions,
+    .primary-actions,
+    .secondary-actions {
+        width: 100%;
+        justify-content: flex-start;
+    }
+
+    .header-actions button,
+    .header-actions a,
+    .header-actions form {
+        width: auto;
+    }
+}
+
+.dashboard-section {
+    background: #ffffff;
+    border-radius: 12px;
+    padding: 1.5rem;
+    border: 1px solid #e1e5ea;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+}
+
+.section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.status-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+}
+
+.status-card {
+    background: #f7f9fc;
+    border: 1px solid #d9e2ec;
+    border-radius: 10px;
+    padding: 1rem;
+}
+
+.status-card .label {
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    color: #64748b;
+    letter-spacing: 0.08em;
+    margin-bottom: 0.35rem;
+}
+
+.status-card .value {
+    font-size: 1.4rem;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.status-card.small .value {
+    font-size: 1rem;
+}
+
+.action-buttons form {
+    display: inline-block;
+    margin-right: 0.5rem;
+}
+
+.dashboard-table table {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    table-layout: auto;
+}
+
+.log-table {
+    overflow-x: auto;
+}
+
+.log-table table {
+    min-width: 900px;
+}
+
+.email-row {
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.email-row:hover {
+    background-color: #eef2ff;
+}
+
+.badge-spam {
+    background: #fee2e2;
+    color: #b91c1c;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+}
+
+.badge-ham {
+    background: #dcfce7;
+    color: #15803d;
+    padding: 0.25rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+}
+
+.events-list {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+    max-height: 260px;
+    overflow-y: auto;
+}
+
+.email-detail-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.email-detail-grid dt {
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748b;
+    margin-bottom: 0.25rem;
+}
+
+.email-detail-grid dd {
+    margin: 0;
+    font-weight: 600;
+    color: #0f172a;
+}
+
+.email-body-wrapper {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1rem;
+    background: #f8fafc;
+}
+
+.email-body {
+    white-space: pre-wrap;
+    margin: 0;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+    font-size: 0.9rem;
+    color: #111827;
+}
+
+.event-item {
+    padding: 0.5rem 0;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 0.9rem;
+    color: #1e293b;
+}
+
+.event-item:last-child {
+    border-bottom: none;
+}
+
+.event-item .time {
+    font-size: 0.8rem;
+    color: #94a3b8;
+    margin-right: 0.5rem;
+}
+
+.event-item .level {
+    font-weight: 600;
+    margin-right: 0.5rem;
+}
+
+.event-item.level-error .level {
+    color: #dc2626;
+}
+
+.event-item.level-warning .level {
+    color: #d97706;
+}
+
+.event-item.level-info .level {
+    color: #2563eb;
+}
+
+.config-form fieldset {
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+}
+
+.config-form legend {
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 0 0.5rem;
+    color: #0f172a;
+}
+
+.provider-section {
+    margin-top: 0.5rem;
+}
+
+.manual-page table {
     border-collapse: collapse;
-    /* width: 98%; */
     max-width: 98%;
     margin: 20px auto;
     table-layout: fixed;
 }
-th, td {
+
+.manual-page th,
+.manual-page td {
     text-align: left;
     padding: 8px;
     border: 1px solid #ddd;
     word-wrap: break-word;
     overflow-wrap: break-word;
-    max-width: 200px; /* Adjust as necessary */
+    max-width: 200px;
 }
-th {
-    background-color: #4CAF50;
-    color: white;
+
+.manual-page th {
+    background-color: #4caf50;
+    color: #ffffff;
 }
-tr:nth-child(even) {
+
+.manual-page tr:nth-child(even) {
     background-color: #f2f2f2;
 }
-button {
+
+.manual-page button {
     cursor: pointer;
     padding: 5px 10px;
     margin: 0 5px;
     border: none;
     color: white;
 }
-.ham {
-    background-color: #4CAF50;
+
+.manual-page .ham {
+    background-color: #4caf50;
 }
-.spam {
+
+.manual-page .spam {
     background-color: #f44336;
-}
-
-small-column {
-    width: 200px; 
-    max-width: 200px;
-    white-space: nowrap; 
-    overflow: hidden;
-    text-overflow: ellipsis; 
-}
-
-/* Optional: Specific styling for the body column to allow it more space */
-th.body-column, td.body-column {
-    width: auto; /* Allows the body column to take up remaining space */
-    max-width: none;
 }
