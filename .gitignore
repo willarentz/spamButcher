@@ -10,6 +10,7 @@ wandb/
 *.pkl
 *.db
 *.log
+google_auth/
 
 # Models and large assets
 *.gguf

@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Authorization</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f4f6fb;
+            margin: 0;
+            padding: 2rem;
+            color: #0f172a;
+        }
+        .result-card {
+            max-width: 420px;
+            margin: 0 auto;
+            background: #fff;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 12px 30px rgba(15, 23, 42, 0.12);
+            text-align: center;
+        }
+        .result-card h1 {
+            margin-top: 0;
+            font-size: 1.5rem;
+        }
+        .success {
+            color: #15803d;
+        }
+        .error {
+            color: #b91c1c;
+        }
+        .subtext {
+            margin-top: 1rem;
+            font-size: 0.95rem;
+            color: #475569;
+        }
+        button {
+            margin-top: 1.5rem;
+            padding: 0.65rem 1.5rem;
+            border-radius: 999px;
+            border: none;
+            cursor: pointer;
+            font-weight: 600;
+        }
+        .close-btn {
+            background: #2563eb;
+            color: #fff;
+        }
+    </style>
+</head>
+<body>
+    <div class="result-card">
+        {% if success %}
+            <h1 class="success">Authorization Complete</h1>
+        {% else %}
+            <h1 class="error">Authorization Failed</h1>
+        {% endif %}
+        <p>{{ message }}</p>
+        <p class="subtext">You can close this window and return to SpamButcher.</p>
+        <button class="close-btn" onclick="window.close();">Close Window</button>
+    </div>
+</body>
+</html>

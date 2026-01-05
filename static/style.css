@@ -220,6 +220,31 @@ body {
     margin-bottom: 0.75rem;
 }
 
+.account-type-section {
+    border-top: 1px dashed #e2e8f0;
+    padding-top: 0.75rem;
+    margin-top: 0.75rem;
+}
+
+.auto-token-hint {
+    border: 1px dashed #cbd5f5;
+    border-radius: 8px;
+    background: #f8fafc;
+    padding: 0.75rem;
+    font-size: 0.9rem;
+}
+
+.credential-status {
+    font-size: 0.9rem;
+}
+
+.oauth-action-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+}
+
 .email-row {
     cursor: pointer;
     transition: background 0.15s ease;
