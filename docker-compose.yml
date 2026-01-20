@@ -1,0 +1,20 @@
+services:
+  spambutcher:
+    build: .
+    container_name: spambutcher
+    restart: unless-stopped
+    ports:
+      - "5150:5150"
+    volumes:
+      # Single data directory for all persistent data
+      - ./data:/app/data
+    environment:
+      - SPAMBUTCHER_PORT=5150
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY:-change-me-in-production}
+      - SPAMBUTCHER_CONFIG_PATH=/app/data/config.json
+      - SPAMBUTCHER_DB_PATH=/app/data/emails.db
+      # Uncomment for console-based Google OAuth (for headless servers)
+      # - SPAMBUTCHER_GOOGLE_AUTH_MODE=console
+    # If using Ollama on the host machine
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

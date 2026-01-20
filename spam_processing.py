@@ -27,8 +27,8 @@ import requests
 from bs4 import BeautifulSoup
 
 
-DATABASE_PATH = 'emails.db'
-CONFIG_PATH = 'config.json'
+DATABASE_PATH = os.environ.get('SPAMBUTCHER_DB_PATH', 'emails.db')
+CONFIG_PATH = os.environ.get('SPAMBUTCHER_CONFIG_PATH', 'config.json')
 
 
 DEFAULT_CONFIG: Dict[str, Any] = {
